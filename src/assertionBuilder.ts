@@ -1,44 +1,17 @@
 import {
-  getAssociatedTokenAddressSync,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  createAssociatedTokenAccountInstruction,
-  createTransferCheckedInstruction,
-} from '@solana/spl-token';
-import fs from 'fs';
-import {
   AccountInfo,
+  AddressLookupTableAccount,
   Connection,
-  Keypair,
+  Message,
   PublicKey,
+  RpcResponseAndContext,
   SimulatedTransactionAccountInfo,
-  StakeProgram,
-  SystemProgram,
-  Transaction,
   TransactionInstruction,
   TransactionMessage,
+  VersionedMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
-import {
-  LIGHTHOUSE_PROGRAM_ID,
-  LogLevel,
-  getAssertAccountDataInstructionDataSerializer,
-  getAssertAccountDeltaInstructionDataSerializer,
-  getAssertAccountInfoInstructionDataSerializer,
-  getAssertAccountInfoMultiInstructionDataSerializer,
-  getAssertBubblegumTreeConfigAccountInstructionDataSerializer,
-  getAssertMerkleTreeAccountInstructionDataSerializer,
-  getAssertMintAccountInstructionDataSerializer,
-  getAssertMintAccountMultiInstructionDataSerializer,
-  getAssertStakeAccountMultiInstructionDataSerializer,
-  getAssertSysvarClockInstructionDataSerializer,
-  getAssertTokenAccountMultiInstructionDataSerializer,
-  getAssertUpgradeableLoaderAccountMultiInstructionDataSerializer,
-  getMemoryCloseInstructionDataSerializer,
-  getMemoryWriteInstructionDataSerializer,
-} from 'lighthouse-sdk-legacy';
-
-import { createLighthouseProgram } from 'lighthouse-sdk-legacy';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { LogLevel } from 'lighthouse-sdk-legacy';
 import {
   ProgramOwner,
   ResolvedAccount,
@@ -53,19 +26,11 @@ import {
 import { TokenAccountStrategies } from './strategyBuilders/tokenProgram/tokenAccount';
 import { MintAccountStrategies } from './strategyBuilders/tokenProgram/mintAccount';
 import { SystemProgramAccountStrategies } from './strategyBuilders/systemProgram/account';
-import { deserializeUpgradeableLoaderState } from './utils/serializer/upgradeableProgramAccount';
-import { setUpgradeAuthorityInstruction } from './utils/serializer/upgradeableProgramAccount/instructions';
 import { UpgradeableLoaderAccountStrategies } from './strategyBuilders/upgradeableLoaderProgram/account';
 import { HashVerifyStrategy } from './strategyBuilders/hashVerify';
-import {
-  StakeAuthorize,
-  authorizeCheckedInstruction,
-  deserializeStakeState,
-} from './utils/serializer/stakeProgramAccount';
-import { base64 } from '@metaplex-foundation/umi/serializers';
 import { StakeProgramAccountStrategies } from './strategyBuilders/stakeProgram/account';
 
-type StrategyName = 'strict' | 'tolerance' | 'hashverify' | 'none';
+export type StrategyName = 'strict' | 'tolerance' | 'hashverify' | 'none';
 type Strategy =
   | StrictStrategy
   | ToleranceStrategy
@@ -115,16 +80,29 @@ export function createDefaultConfig(): AssertionBuilderConfig {
   return {};
 }
 
-export async function injectLighthouseIntoTransaction(
+/**
+ *  Builds an assertions by running simulation analysis and generating assertions based on given strategy in AssertionBuilderConfig
+ **/
+export async function buildLighthouseAssertion(
   config: AssertionBuilderConfig,
   logLevel: LogLevel,
   connection: Connection,
   tx: VersionedTransaction
-) {
-  const { writeableAccounts, signerAccounts } = await getWriteablesAndSigners(
-    tx
-  );
-
+): Promise<{
+  overhead: number;
+  preTxLength: number;
+  postTxLength: number;
+  injectionIxs: TransactionInstruction[];
+  injectedTx: VersionedTransaction;
+  accounts: {
+    [key: string]: {
+      simulationAccount: AccountInfo<Buffer> | null;
+      resolvedSimulationAccount: ResolvedAccount;
+      appliedStrategy?: Strategy | undefined;
+    };
+  };
+}> {
+  const { writeableAccounts } = await getWriteablesAndSigners(connection, tx);
   const simResult = await connection.simulateTransaction(tx, {
     accounts: {
       encoding: 'base64',
@@ -134,37 +112,28 @@ export async function injectLighthouseIntoTransaction(
 
   if (simResult.value.err) {
     throw new Error(`Simulation failed ${JSON.stringify(simResult)}`);
-  }
-
-  if (writeableAccounts.length !== simResult.value.accounts?.length) {
+  } else if (writeableAccounts.length !== simResult.value.accounts?.length) {
     throw new Error(
       `Simulation != expected account lengths got ${simResult.value.accounts?.length} expected ${writeableAccounts.length}`
     );
   }
 
-  const accountSnapshots = await connection.getMultipleAccountsInfo(
-    writeableAccounts,
-    'confirmed'
-  );
-
   const injectionIxs: TransactionInstruction[] = [];
-
   const simulationAccounts = simResult.value.accounts.map((account) =>
     fromSimulationAccountInfo(account)
   );
 
   const accounts: {
     [key: string]: {
-      account: AccountInfo<Buffer> | null;
       simulationAccount: AccountInfo<Buffer> | null;
       resolvedSimulationAccount: ResolvedAccount;
       appliedStrategy?: Strategy;
     };
   } = {};
 
-  let i = 0;
-  for (const accountAddress of writeableAccounts) {
-    const accountSnapshot = accountSnapshots[i];
+  // Take writable accounts and resolve the program owner + deserialize their account state + build assertion based on strategy.
+  for (let i = 0; i < writeableAccounts.length; i++) {
+    const accountAddress = writeableAccounts[i];
     const accountSimulationSnapshot = simulationAccounts[i];
 
     const resolvedSimulationAccount = resolveAccount(
@@ -173,7 +142,6 @@ export async function injectLighthouseIntoTransaction(
     );
 
     accounts[accountAddress.toBase58()] = {
-      account: accountSnapshot,
       simulationAccount: accountSimulationSnapshot,
       resolvedSimulationAccount,
     };
@@ -203,65 +171,61 @@ export async function injectLighthouseIntoTransaction(
             resolvedSimulationAccount.programOwner
           ]!(resolvedSimulationAccount);
 
-          switch (strategyConfig.strategy) {
-            case 'hashverify':
-              injectionIxs.push(
-                ...HashVerifyStrategy.buildAssertion(
-                  resolvedSimulationAccount,
-                  logLevel
-                )
-              );
-              break;
-            case 'strict':
-              injectionIxs.push(
-                ...TokenAccountStrategies.buildStrictAssertion(
-                  resolvedSimulationAccount,
-                  logLevel
-                )
-              );
-              break;
-            case 'tolerance':
-              injectionIxs.push(
-                ...TokenAccountStrategies.buildToleranceAssertion(
-                  resolvedSimulationAccount,
-                  logLevel,
-                  {
-                    tolerancePercent: strategyConfig.tolerancePercent,
-                    inclusive: strategyConfig.inclusive,
-                  }
-                )
-              );
-              break;
-            default:
-              throw new Error('unimplemented');
+          if (strategyConfig.strategy === 'hashverify') {
+            injectionIxs.push(
+              ...HashVerifyStrategy.buildAssertion(
+                resolvedSimulationAccount,
+                logLevel
+              )
+            );
+          } else if (strategyConfig.strategy === 'strict') {
+            injectionIxs.push(
+              ...TokenAccountStrategies.buildStrictAssertion(
+                resolvedSimulationAccount,
+                logLevel
+              )
+            );
+          } else if (strategyConfig.strategy === 'tolerance') {
+            injectionIxs.push(
+              ...TokenAccountStrategies.buildToleranceAssertion(
+                resolvedSimulationAccount,
+                logLevel,
+                {
+                  tolerancePercent: strategyConfig.tolerancePercent,
+                  inclusive: strategyConfig.inclusive,
+                }
+              )
+            );
+          } else if (strategyConfig.strategy === 'none') {
           }
         } else if (resolvedSimulationAccount.accountType === 'mint') {
           const strategyConfig = config[
             resolvedSimulationAccount.programOwner
           ]!(resolvedSimulationAccount);
 
-          switch (strategyConfig.strategy) {
-            case 'hashverify':
-              injectionIxs.push(
-                ...HashVerifyStrategy.buildAssertion(
-                  resolvedSimulationAccount,
-                  logLevel
-                )
-              );
-              break;
-            case 'strict':
-              injectionIxs.push(
-                ...MintAccountStrategies.buildStrictAssertion(
-                  resolvedSimulationAccount,
-                  logLevel
-                )
-              );
-              break;
-            case 'tolerance':
-            default:
-              throw new Error('Not implemented');
+          if (strategyConfig.strategy === 'hashverify') {
+            injectionIxs.push(
+              ...HashVerifyStrategy.buildAssertion(
+                resolvedSimulationAccount,
+                logLevel
+              )
+            );
+          } else if (strategyConfig.strategy === 'strict') {
+            injectionIxs.push(
+              ...MintAccountStrategies.buildStrictAssertion(
+                resolvedSimulationAccount,
+                logLevel
+              )
+            );
+          } else if (strategyConfig.strategy === 'tolerance') {
+            throw new Error(
+              `Unimplemented strategy ${
+                strategyConfig.strategy
+              } for Token Account ${resolvedSimulationAccount.address.toBase58()}`
+            );
           }
         }
+
         break;
       }
       case ProgramOwner.SYSTEM_PROGRAM: {
@@ -269,41 +233,32 @@ export async function injectLighthouseIntoTransaction(
           resolvedSimulationAccount
         );
 
-        if (resolvedSimulationAccount.accountInfo === null) {
-          throw new Error(`unimplemented`);
-        } else {
-          switch (strategyConfig.strategy) {
-            case 'hashverify':
-              injectionIxs.push(
-                ...HashVerifyStrategy.buildAssertion(
-                  resolvedSimulationAccount,
-                  logLevel
-                )
-              );
-              break;
-            case 'strict':
-              injectionIxs.push(
-                ...SystemProgramAccountStrategies.buildStrictAssertion(
-                  resolvedSimulationAccount,
-                  logLevel
-                )
-              );
-              break;
-            case 'tolerance':
-              injectionIxs.push(
-                ...SystemProgramAccountStrategies.buildToleranceAssertion(
-                  resolvedSimulationAccount,
-                  logLevel,
-                  {
-                    tolerancePercentage: strategyConfig.tolerancePercent,
-                  }
-                )
-              );
-              break;
-            default:
-              throw new Error('unimplemented');
-          }
+        if (strategyConfig.strategy === 'hashverify') {
+          injectionIxs.push(
+            ...HashVerifyStrategy.buildAssertion(
+              resolvedSimulationAccount,
+              logLevel
+            )
+          );
+        } else if (strategyConfig.strategy === 'strict') {
+          injectionIxs.push(
+            ...SystemProgramAccountStrategies.buildStrictAssertion(
+              resolvedSimulationAccount,
+              logLevel
+            )
+          );
+        } else if (strategyConfig.strategy === 'tolerance') {
+          injectionIxs.push(
+            ...SystemProgramAccountStrategies.buildToleranceAssertion(
+              resolvedSimulationAccount,
+              logLevel,
+              {
+                tolerancePercentage: strategyConfig.tolerancePercent,
+              }
+            )
+          );
         }
+
         break;
       }
       case ProgramOwner.UPGRADEABLE_LOADER_PROGRAM: {
@@ -311,27 +266,28 @@ export async function injectLighthouseIntoTransaction(
           resolvedSimulationAccount
         );
 
-        switch (strategyConfig.strategy) {
-          case 'hashverify':
-            injectionIxs.push(
-              ...HashVerifyStrategy.buildAssertion(
-                resolvedSimulationAccount,
-                logLevel
-              )
-            );
-            break;
-          case 'strict':
-            injectionIxs.push(
-              ...UpgradeableLoaderAccountStrategies.buildStrictAssertion(
-                resolvedSimulationAccount,
-                logLevel
-              )
-            );
-            break;
-          case 'tolerance':
-          default:
-            throw new Error('Not implemented');
+        if (strategyConfig.strategy === 'hashverify') {
+          injectionIxs.push(
+            ...HashVerifyStrategy.buildAssertion(
+              resolvedSimulationAccount,
+              logLevel
+            )
+          );
+        } else if (strategyConfig.strategy === 'strict') {
+          injectionIxs.push(
+            ...UpgradeableLoaderAccountStrategies.buildStrictAssertion(
+              resolvedSimulationAccount,
+              logLevel
+            )
+          );
+        } else if (strategyConfig.strategy === 'tolerance') {
+          throw new Error(
+            `Unimplemented strategy ${
+              strategyConfig.strategy
+            } for Upgradeable Loader ${resolvedSimulationAccount.address.toBase58()}`
+          );
         }
+
         break;
       }
       case ProgramOwner.UNKNOWN: {
@@ -339,22 +295,24 @@ export async function injectLighthouseIntoTransaction(
           resolvedSimulationAccount
         );
 
-        switch (strategyConfig.strategy) {
-          case 'hashverify':
-            injectionIxs.push(
-              ...HashVerifyStrategy.buildAssertion(
-                resolvedSimulationAccount,
-                logLevel
-              )
-            );
-            break;
-          case 'none':
-            break;
-          default:
-          case 'strict':
-          case 'tolerance':
-            throw new Error('Not implemented');
+        if (strategyConfig.strategy === 'hashverify') {
+          injectionIxs.push(
+            ...HashVerifyStrategy.buildAssertion(
+              resolvedSimulationAccount,
+              logLevel
+            )
+          );
+        } else if (
+          strategyConfig.strategy === 'strict' ||
+          strategyConfig.strategy === 'tolerance'
+        ) {
+          throw new Error(
+            `Unimplemented strategy ${
+              strategyConfig.strategy
+            } for Unknown Account ${resolvedSimulationAccount.address.toBase58()}`
+          );
         }
+
         break;
       }
       case ProgramOwner.SPL_STAKE_PROGRAM: {
@@ -386,10 +344,8 @@ export async function injectLighthouseIntoTransaction(
         break;
       }
       default:
-        throw new Error('unimplemented programowner');
+        throw new Error(`Unknown program owner ${resolvedSimulationAccount}`);
     }
-
-    i++;
   }
 
   const decompiledMessage = TransactionMessage.decompile(tx.message);
@@ -412,11 +368,14 @@ export async function injectLighthouseIntoTransaction(
   };
 }
 
-async function getWriteablesAndSigners(tx: VersionedTransaction) {
+async function getWriteablesAndSigners(
+  connection: Connection,
+  tx: VersionedTransaction
+) {
   const signerAccounts: Set<String> = new Set();
   const writeableAccounts: Set<String> = new Set();
 
-  const accountKeys = tx.message.staticAccountKeys;
+  const accountKeys = await getAccountKeysFromMessage(connection, tx.message);
 
   for (const instruction of tx.message.compiledInstructions) {
     for (const accountIdx of instruction.accountKeyIndexes) {
@@ -458,4 +417,36 @@ export function fromSimulationAccountInfo(
     owner: new PublicKey(account.owner),
     data: Buffer.from(account.data[0], 'base64'),
   };
+}
+
+export async function getAccountKeysFromMessage(
+  connection: Connection,
+  message: VersionedMessage
+): Promise<PublicKey[]> {
+  if (message instanceof Message) {
+    return message.accountKeys;
+  }
+
+  if (message.numAccountKeysFromLookups === 0) {
+    return message.staticAccountKeys;
+  }
+
+  const lookupTable = await Promise.all(
+    message.addressTableLookups.map((lookup) =>
+      connection.getAddressLookupTable(lookup.accountKey)
+    )
+  );
+
+  const validLookups = (
+    lookupTable.filter(
+      (lookup) => lookup.value !== null
+    ) as RpcResponseAndContext<AddressLookupTableAccount>[]
+  ).map((lookup) => lookup.value);
+
+  return message
+    .getAccountKeys({
+      addressLookupTableAccounts: validLookups,
+    })
+    .keySegments()
+    .flat();
 }

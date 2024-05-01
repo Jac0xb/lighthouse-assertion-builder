@@ -1,70 +1,16 @@
 import {
-  getAssociatedTokenAddressSync,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  createAssociatedTokenAccountInstruction,
-  createTransferCheckedInstruction,
-} from '@solana/spl-token';
-import fs from 'fs';
-import {
-  AccountInfo,
   Connection,
   Keypair,
   PublicKey,
-  SimulatedTransactionAccountInfo,
-  StakeProgram,
   SystemProgram,
-  Transaction,
-  TransactionInstruction,
   TransactionMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
-import {
-  LIGHTHOUSE_PROGRAM_ID,
-  LogLevel,
-  ResolvedAccount,
-  getAssertAccountDataInstructionDataSerializer,
-  getAssertAccountDeltaInstructionDataSerializer,
-  getAssertAccountInfoInstructionDataSerializer,
-  getAssertAccountInfoMultiInstructionDataSerializer,
-  getAssertBubblegumTreeConfigAccountInstructionDataSerializer,
-  getAssertMerkleTreeAccountInstructionDataSerializer,
-  getAssertMintAccountInstructionDataSerializer,
-  getAssertMintAccountMultiInstructionDataSerializer,
-  getAssertStakeAccountMultiInstructionDataSerializer,
-  getAssertSysvarClockInstructionDataSerializer,
-  getAssertTokenAccountMultiInstructionDataSerializer,
-  getAssertUpgradeableLoaderAccountMultiInstructionDataSerializer,
-  getMemoryCloseInstructionDataSerializer,
-  getMemoryWriteInstructionDataSerializer,
-} from 'lighthouse-sdk-legacy';
-
-import { createLighthouseProgram } from 'lighthouse-sdk-legacy';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import {
-  ProgramOwner,
-  ResolvedSplTokenProgramAccount,
-  ResolvedStakeProgramAccount,
-  ResolvedSystemProgramAccount,
-  ResolvedUnknownAccount,
-  ResolvedUnownedAccount,
-  ResolvedUpgradeableLoaderAccount,
-  resolveAccount,
-} from '../../resolvedAccount';
-import { TokenAccountStrategies } from '../../strategyBuilders/tokenProgram/tokenAccount';
-import { MintAccountStrategies } from '../../strategyBuilders/tokenProgram/mintAccount';
-import { SystemProgramAccountStrategies } from '../../strategyBuilders/systemProgram/account';
+import { LogLevel } from 'lighthouse-sdk-legacy';
+import { ProgramOwner } from '../../resolvedAccount';
 import { deserializeUpgradeableLoaderState } from '../../utils/serializer/upgradeableProgramAccount';
 import { setUpgradeAuthorityInstruction } from '../../utils/serializer/upgradeableProgramAccount/instructions';
-import { UpgradeableLoaderAccountStrategies } from '../../strategyBuilders/upgradeableLoaderProgram/account';
-import { HashVerifyStrategy } from '../../strategyBuilders/hashVerify';
-import {
-  StakeAuthorize,
-  authorizeCheckedInstruction,
-  deserializeStakeState,
-} from '../../utils/serializer/stakeProgramAccount';
-import { base64 } from '@metaplex-foundation/umi/serializers';
-import { StakeProgramAccountStrategies } from '../../strategyBuilders/stakeProgram/account';
-import { injectLighthouseIntoTransaction } from '../../lighthouseInjection';
+import { buildLighthouseAssertion } from '../../assertionBuilder';
 
 export const programDataAuthorityChangeGuardTest = async (
   connection: Connection
@@ -101,7 +47,7 @@ export const programDataAuthorityChangeGuardTest = async (
     },
   });
 
-  const injectedTx = await injectLighthouseIntoTransaction(
+  const injectedTx = await buildLighthouseAssertion(
     {
       [ProgramOwner.UPGRADEABLE_LOADER_PROGRAM]: () => ({
         strategy: 'strict',
@@ -116,15 +62,10 @@ export const programDataAuthorityChangeGuardTest = async (
   );
 
   const simulatedInjectionResult = await connection.simulateTransaction(
-    injectedTx.injectedTx,
-    {
-      accounts: {
-        encoding: 'base64',
-        addresses: [program.programDataAddress],
-      },
-    }
+    injectedTx.injectedTx
   );
 
+  // console.log(inspect(injectionResults, false, null, true));
   console.log(simulatedInjectionResult);
 };
 
@@ -159,31 +100,13 @@ export const programBufferAuthorityChangeGuardTest = async (
           signer,
           Keypair.generate().publicKey
         ),
-        SystemProgram.createAccount({
-          fromPubkey: signer,
-          newAccountPubkey: newAccountSystemProgram.publicKey,
-          lamports: await connection.getMinimumBalanceForRentExemption(100),
-          space: 100,
-          programId: SystemProgram.programId,
-        }),
-        SystemProgram.createAccount({
-          fromPubkey: signer,
-          newAccountPubkey: newAccountUnknownProgram.publicKey,
-          lamports: await connection.getMinimumBalanceForRentExemption(
-            1024 * 10
-          ),
-          space: 1024 * 10,
-          programId: new PublicKey(
-            'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4'
-          ),
-        }),
       ],
       payerKey: signer,
       recentBlockhash: (await connection.getLatestBlockhash()).blockhash,
     }).compileToV0Message()
   );
 
-  const injectedTx = await injectLighthouseIntoTransaction(
+  const injectedTx = await buildLighthouseAssertion(
     {
       [ProgramOwner.UPGRADEABLE_LOADER_PROGRAM]: () => ({
         strategy: 'strict',
@@ -191,23 +114,16 @@ export const programBufferAuthorityChangeGuardTest = async (
       [ProgramOwner.SYSTEM_PROGRAM]: () => ({
         strategy: 'strict',
       }),
-      [ProgramOwner.UNKNOWN]: () => ({
-        strategy: 'hashverify',
-      }),
     },
     LogLevel.PlaintextMessage,
     connection,
     tx
   );
+
   const simulatedInjectionResult = await connection.simulateTransaction(
-    injectedTx.injectedTx,
-    {
-      accounts: {
-        encoding: 'base64',
-        addresses: [programBufferPubkey.toString()],
-      },
-    }
+    injectedTx.injectedTx
   );
 
+  // console.log(inspect(injectionResults, false, null, true));
   console.log(simulatedInjectionResult);
 };

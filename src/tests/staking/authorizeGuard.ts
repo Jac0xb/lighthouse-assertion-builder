@@ -8,10 +8,12 @@ import {
 } from '@solana/web3.js';
 import { ProgramOwner } from '../../resolvedAccount';
 import { deserializeStakeState } from '../../utils/serializer/stakeProgramAccount';
-import { injectLighthouseIntoTransaction } from '../../lighthouseInjection';
 import { inspect } from 'util';
 import { LogLevel } from 'lighthouse-sdk-legacy';
+import { buildLighthouseAssertion } from '../../assertionBuilder';
 
+// Tests lighthouse assertion strategy where
+// A transaction attempts to change the stake account's authorized staker / withdraw authority
 export const stakeAuthorizeGuardTest = async (connection: Connection) => {
   const signer = new PublicKey('5B6svuwWuW9w8Y2a868Mf6xDvqjCHkmrYByUyggi7ioj');
   const stakeAccount = new PublicKey(
@@ -56,7 +58,7 @@ export const stakeAuthorizeGuardTest = async (connection: Connection) => {
     }).compileToV0Message()
   );
 
-  const injectionResults = await injectLighthouseIntoTransaction(
+  const injectionResults = await buildLighthouseAssertion(
     {
       [ProgramOwner.SPL_STAKE_PROGRAM]: () => {
         return {
@@ -95,6 +97,6 @@ export const stakeAuthorizeGuardTest = async (connection: Connection) => {
     throw new Error('Simulated injecteded tx failed');
   }
 
+  // console.log(inspect(injectionResults, false, null, true));
   console.log(simulatedInjectionResult);
-  console.log(inspect(injectionResults, false, null, true));
 };

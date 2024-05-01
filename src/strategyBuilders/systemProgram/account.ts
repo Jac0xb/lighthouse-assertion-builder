@@ -16,6 +16,7 @@ import {
   ProgramOwner,
   ResolvedAccount,
   ResolvedSystemProgramAccount,
+  ResolvedUnownedAccount,
 } from '../../resolvedAccount';
 import { calculateToleranceRange, toWeb3JSInstruction } from '../utils';
 
@@ -24,13 +25,13 @@ umi.programs.add(createLighthouseProgram());
 
 export const SystemProgramAccountStrategies = {
   buildStrictAssertion: function (
-    simulatedAccount: ResolvedSystemProgramAccount,
+    simulatedAccount: ResolvedUnownedAccount | ResolvedSystemProgramAccount,
     logLevel: LogLevel
   ) {
     const assertions = [
       accountInfoAssertion('Lamports', {
         operator: IntegerOperator.Equal,
-        value: simulatedAccount.accountInfo.lamports,
+        value: simulatedAccount.accountInfo?.lamports ?? 0,
       }),
       accountInfoAssertion('KnownOwner', {
         value: KnownProgram.System,
@@ -47,10 +48,17 @@ export const SystemProgramAccountStrategies = {
     return toWeb3JSInstruction(builder.getInstructions());
   },
   buildToleranceAssertion: function (
-    simulatedAccount: ResolvedSystemProgramAccount,
+    simulatedAccount: ResolvedUnownedAccount | ResolvedSystemProgramAccount,
     logLevel: LogLevel,
     args: { tolerancePercentage: number }
   ) {
+    if (!simulatedAccount.accountInfo) {
+      return SystemProgramAccountStrategies.buildStrictAssertion(
+        simulatedAccount,
+        logLevel
+      );
+    }
+
     const balanceBigint = BigInt(simulatedAccount.accountInfo.lamports);
     const toleranceRange = calculateToleranceRange(
       balanceBigint,
