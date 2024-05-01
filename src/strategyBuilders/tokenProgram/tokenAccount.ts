@@ -20,7 +20,6 @@ import {
   ResolvedSplTokenProgramTokenAccount,
 } from '../../resolvedAccount';
 import { calculateToleranceRange, toWeb3JSInstruction } from '../utils';
-import { AccountAssertionBuilder } from '../../assertionBuilder';
 
 function isAccountType(
   account: ResolvedAccount
@@ -41,13 +40,6 @@ function isOwner(
 function getProgramOwner() {
   return ProgramOwner.SPL_TOKEN_PROGRAM;
 }
-export const AccountRegistry: {
-  [key: string]: AccountAssertionBuilder<ResolvedAccount>;
-} = {};
-
-export const registerAccount = (
-  config: AccountAssertionBuilder<ResolvedAccount>
-) => {};
 
 export const umi = createUmi('https://api.devnet.solana.com');
 umi.programs.add(createLighthouseProgram());
