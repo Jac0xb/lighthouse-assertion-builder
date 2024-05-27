@@ -45,7 +45,7 @@ export const unknownAccountHashVerifyStrategyTest = async (
     }).compileToV0Message()
   );
 
-  const injectedTx = await buildLighthouseAssertion(
+  const injectionResults = await buildLighthouseAssertion(
     {
       [ProgramOwner.SYSTEM_PROGRAM]: () => ({
         strategy: 'strict',
@@ -60,9 +60,9 @@ export const unknownAccountHashVerifyStrategyTest = async (
   );
 
   const simulatedInjectionResult = await connection.simulateTransaction(
-    injectedTx.injectedTx
+    injectionResults.injectedTx
   );
 
-  // console.log(inspect(injectionResults, false, null, true));
+  console.log('Overhead (bytes): ', injectionResults.overhead);
   console.log(simulatedInjectionResult);
 };

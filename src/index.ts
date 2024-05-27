@@ -10,9 +10,10 @@ import {
   tokenAccountTokenLegacyMintToleranceTest,
 } from './tests/token/token';
 import { unknownAccountHashVerifyStrategyTest } from './tests/unknown/hashverify';
+import { RPC_URL } from './utils/config';
 
 (async () => {
-  const connection = new Connection('https://api.devnet.solana.com');
+  const connection = new Connection(RPC_URL);
   await stakeAuthorizeGuardTest(connection);
   await programDataAuthorityChangeGuardTest(connection);
   await programBufferAuthorityChangeGuardTest(connection);

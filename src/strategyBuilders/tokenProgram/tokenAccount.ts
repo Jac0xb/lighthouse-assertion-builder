@@ -4,28 +4,27 @@ import {
 } from '@solana/spl-token';
 import { PublicKey } from '@solana/web3.js';
 import {
-  assertTokenAccount,
   tokenAccountAssertion,
   EquatableOperator,
   IntegerOperator,
   assertTokenAccountMulti,
 } from 'lighthouse-sdk-legacy';
 import { publicKey } from '@metaplex-foundation/umi';
-
-import { createLighthouseProgram, LogLevel } from 'lighthouse-sdk-legacy';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { LogLevel } from 'lighthouse-sdk-legacy';
 import {
   ProgramOwner,
   ResolvedAccount,
   ResolvedSplTokenProgramTokenAccount,
 } from '../../resolvedAccount';
 import { calculateToleranceRange, toWeb3JSInstruction } from '../utils';
+import { UMI } from '../../utils/umi';
 
 function isAccountType(
   account: ResolvedAccount
 ): account is ResolvedSplTokenProgramTokenAccount {
   return (
-    account.programOwner === ProgramOwner.SPL_TOKEN_PROGRAM &&
+    (account.programOwner === ProgramOwner.SPL_TOKEN_PROGRAM ||
+      account.programOwner === ProgramOwner.SPL_TOKEN_2022_PROGRAM) &&
     account.accountType === 'account'
   );
 }
@@ -40,9 +39,6 @@ function isOwner(
 function getProgramOwner() {
   return ProgramOwner.SPL_TOKEN_PROGRAM;
 }
-
-export const umi = createUmi('https://api.devnet.solana.com');
-umi.programs.add(createLighthouseProgram());
 
 const buildAssertOwner = (
   simulatedAccount: ResolvedSplTokenProgramTokenAccount,
@@ -91,9 +87,13 @@ function buildStrictAssertion(
         : null,
       operator: EquatableOperator.Equal,
     }),
+    tokenAccountAssertion('DelegatedAmount', {
+      value: simulatedAccount.state.delegatedAmount,
+      operator: IntegerOperator.Equal,
+    }),
   ];
 
-  let builder = assertTokenAccountMulti(umi, {
+  let builder = assertTokenAccountMulti(UMI, {
     targetAccount: publicKey(simulatedAccount.address),
     logLevel,
     assertions,
@@ -128,9 +128,17 @@ function buildToleranceAssertion(
         : null,
       operator: EquatableOperator.Equal,
     }),
+    tokenAccountAssertion('DelegatedAmount', {
+      value: simulatedAccount.state.delegatedAmount - toleranceAmount,
+      operator: IntegerOperator.GreaterThanOrEqual,
+    }),
+    tokenAccountAssertion('DelegatedAmount', {
+      value: simulatedAccount.state.delegatedAmount + toleranceAmount,
+      operator: IntegerOperator.LessThanOrEqual,
+    }),
   ];
 
-  let builder = assertTokenAccountMulti(umi, {
+  let builder = assertTokenAccountMulti(UMI, {
     targetAccount: publicKey(simulatedAccount.address),
     logLevel,
     assertions,

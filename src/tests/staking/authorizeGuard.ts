@@ -97,6 +97,6 @@ export const stakeAuthorizeGuardTest = async (connection: Connection) => {
     throw new Error('Simulated injecteded tx failed');
   }
 
-  // console.log(inspect(injectionResults, false, null, true));
+  console.log('Overhead (bytes): ', injectionResults.overhead);
   console.log(simulatedInjectionResult);
 };

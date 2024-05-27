@@ -1,78 +1,26 @@
-import { generateKeyPairSync } from 'crypto';
+import { PublicKey } from '@solana/web3.js';
 import {
-  createInitializeMintInstruction,
-  createInitializeMintCloseAuthorityInstruction,
-  getMintLen,
-  ExtensionType,
-  TOKEN_2022_PROGRAM_ID,
-  createMintToCheckedInstruction,
-  getAssociatedTokenAddressSync,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  createAssociatedTokenAccountInstruction,
-  createTransferCheckedInstruction,
-  createSetAuthorityInstruction,
-  AuthorityType,
-  revoke,
-  createRevokeInstruction,
-  createBurnInstruction,
-  createCloseAccountInstruction,
-  createMint,
-  TOKEN_PROGRAM_ID,
-  getAccount,
-  unpackAccount,
-  ACCOUNT_SIZE,
-  AccountType,
-  unpackMint,
-  createMintToInstruction,
-  MINT_SIZE,
-  MULTISIG_SIZE,
-  unpackMultisig,
-  Account,
-  Mint,
-} from '@solana/spl-token';
-import fs from 'fs';
-import {
-  AccountInfo,
-  Connection,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  Transaction,
-  TransactionInstruction,
-  TransactionMessage,
-  VersionedTransaction,
-  sendAndConfirmTransaction,
-} from '@solana/web3.js';
-import {
-  assertTokenAccount,
-  tokenAccountAssertion,
   EquatableOperator,
   IntegerOperator,
-  assertMintAccount,
   mintAccountAssertion,
   assertMintAccountMulti,
 } from 'lighthouse-sdk-legacy';
 import { publicKey } from '@metaplex-foundation/umi';
-import {
-  toWeb3JsLegacyTransaction,
-  toWeb3JsPublicKey,
-} from '@metaplex-foundation/umi-web3js-adapters';
-
-import { createLighthouseProgram, LogLevel } from 'lighthouse-sdk-legacy';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { LogLevel } from 'lighthouse-sdk-legacy';
 import {
   ProgramOwner,
   ResolvedAccount,
   ResolvedSplTokenProgramMintAccount,
-  ResolvedSplTokenProgramTokenAccount,
 } from '../../resolvedAccount';
 import { toWeb3JSInstruction } from '../utils';
+import { UMI } from '../../utils/umi';
 
 function isAccountType(
   account: ResolvedAccount
 ): account is ResolvedSplTokenProgramMintAccount {
   return (
-    account.programOwner === ProgramOwner.SPL_TOKEN_PROGRAM &&
+    (account.programOwner === ProgramOwner.SPL_TOKEN_PROGRAM ||
+      account.programOwner === ProgramOwner.SPL_TOKEN_2022_PROGRAM) &&
     account.accountType === 'mint'
   );
 }
@@ -93,9 +41,6 @@ function isOwner(
 function getProgramOwner() {
   return ProgramOwner.SPL_TOKEN_PROGRAM;
 }
-
-export const umi = createUmi('https://api.devnet.solana.com');
-umi.programs.add(createLighthouseProgram());
 
 function buildStrictAssertion(
   simulatedAccount: ResolvedSplTokenProgramMintAccount,
@@ -120,7 +65,7 @@ function buildStrictAssertion(
     }),
   ];
 
-  let builder = assertMintAccountMulti(umi, {
+  let builder = assertMintAccountMulti(UMI, {
     targetAccount: publicKey(simulatedAccount.address),
     logLevel,
     assertions,

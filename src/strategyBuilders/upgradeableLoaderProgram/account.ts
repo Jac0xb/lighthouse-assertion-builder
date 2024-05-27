@@ -7,9 +7,7 @@ import {
   upgradableBufferAssertion,
 } from 'lighthouse-sdk-legacy';
 import { publicKey } from '@metaplex-foundation/umi';
-
-import { createLighthouseProgram, LogLevel } from 'lighthouse-sdk-legacy';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { LogLevel } from 'lighthouse-sdk-legacy';
 import {
   ProgramOwner,
   ResolvedAccount,
@@ -18,9 +16,7 @@ import {
 import { toWeb3JSInstruction } from '../utils';
 import { BufferAccountData } from '../../utils/serializer/upgradeableProgramAccount/buffer';
 import { ProgramDataAccountData } from '../../utils/serializer/upgradeableProgramAccount/programData';
-
-export const umi = createUmi('https://api.devnet.solana.com');
-umi.programs.add(createLighthouseProgram());
+import { UMI } from '../../utils/umi';
 
 export const UpgradeableLoaderAccountStrategies = {
   buildStrictAssertion: function (
@@ -28,7 +24,7 @@ export const UpgradeableLoaderAccountStrategies = {
     logLevel: LogLevel
   ) {
     if (simulatedAccount.accountType === 'programData') {
-      const builder = assertUpgradeableLoaderAccount(umi, {
+      const builder = assertUpgradeableLoaderAccount(UMI, {
         targetAccount: publicKey(simulatedAccount.address),
         logLevel,
         assertion: upgradeableLoaderStateAssertion('ProgramData', [
@@ -44,7 +40,7 @@ export const UpgradeableLoaderAccountStrategies = {
 
       return toWeb3JSInstruction(builder.getInstructions());
     } else if (simulatedAccount.accountType === 'buffer') {
-      const builder = assertUpgradeableLoaderAccount(umi, {
+      const builder = assertUpgradeableLoaderAccount(UMI, {
         targetAccount: publicKey(simulatedAccount.address),
         logLevel,
         assertion: upgradeableLoaderStateAssertion('Buffer', [

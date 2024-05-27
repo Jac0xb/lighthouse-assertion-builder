@@ -2,15 +2,15 @@ import {
   EquatableOperator,
   assertStakeAccountMulti,
   StakeAccountAssertion,
+  StakeStateType,
+  assertAccountInfo,
+  IntegerOperator,
 } from 'lighthouse-sdk-legacy';
 import { publicKey } from '@metaplex-foundation/umi';
-import { createLighthouseProgram, LogLevel } from 'lighthouse-sdk-legacy';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { LogLevel } from 'lighthouse-sdk-legacy';
 import { ResolvedStakeProgramAccount } from '../../resolvedAccount';
 import { toWeb3JSInstruction } from '../utils';
-
-export const umi = createUmi('https://api.devnet.solana.com');
-umi.programs.add(createLighthouseProgram());
+import { UMI } from '../../utils/umi';
 
 export const StakeProgramAccountStrategies = {
   buildStrictAssertion: function (
@@ -18,6 +18,29 @@ export const StakeProgramAccountStrategies = {
     logLevel: LogLevel
   ) {
     const assertions: StakeAccountAssertion[] = [];
+
+    let stakeState: StakeStateType;
+
+    switch (simulatedAccount.accountType) {
+      case 'uninitialized':
+        stakeState = StakeStateType.Uninitialized;
+        break;
+      case 'initialized':
+        stakeState = StakeStateType.Initialized;
+        break;
+      case 'stake':
+        stakeState = StakeStateType.Stake;
+        break;
+      case 'rewardsPool':
+        stakeState = StakeStateType.RewardsPool;
+        break;
+    }
+
+    assertions.push({
+      __kind: 'State',
+      value: stakeState,
+      operator: EquatableOperator.Equal,
+    });
 
     if (
       simulatedAccount.accountType === 'initialized' ||
@@ -46,12 +69,23 @@ export const StakeProgramAccountStrategies = {
       });
     }
 
-    let builder = assertStakeAccountMulti(umi, {
+    let builder = assertStakeAccountMulti(UMI, {
       targetAccount: publicKey(simulatedAccount.address),
       logLevel,
       assertions,
     });
 
-    return toWeb3JSInstruction(builder.getInstructions());
+    return toWeb3JSInstruction([
+      ...assertAccountInfo(UMI, {
+        targetAccount: publicKey(simulatedAccount.address),
+        logLevel,
+        assertion: {
+          __kind: 'Lamports',
+          operator: IntegerOperator.Equal,
+          value: BigInt(simulatedAccount.accountInfo.lamports),
+        },
+      }).getInstructions(),
+      ...builder.getInstructions(),
+    ]);
   },
 };

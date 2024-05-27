@@ -106,7 +106,7 @@ export const programBufferAuthorityChangeGuardTest = async (
     }).compileToV0Message()
   );
 
-  const injectedTx = await buildLighthouseAssertion(
+  const injectionResults = await buildLighthouseAssertion(
     {
       [ProgramOwner.UPGRADEABLE_LOADER_PROGRAM]: () => ({
         strategy: 'strict',
@@ -121,9 +121,9 @@ export const programBufferAuthorityChangeGuardTest = async (
   );
 
   const simulatedInjectionResult = await connection.simulateTransaction(
-    injectedTx.injectedTx
+    injectionResults.injectedTx
   );
 
-  // console.log(inspect(injectionResults, false, null, true));
+  console.log('Overhead (bytes): ', injectionResults.overhead);
   console.log(simulatedInjectionResult);
 };

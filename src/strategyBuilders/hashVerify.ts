@@ -1,14 +1,10 @@
 import { assertAccountInfo, accountInfoAssertion } from 'lighthouse-sdk-legacy';
 import { publicKey } from '@metaplex-foundation/umi';
-
-import { createLighthouseProgram, LogLevel } from 'lighthouse-sdk-legacy';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { LogLevel } from 'lighthouse-sdk-legacy';
 import { ResolvedAccount } from '../resolvedAccount';
 import { toWeb3JSInstruction } from './utils';
 import { keccak_256 } from 'js-sha3';
-
-export const umi = createUmi('https://api.devnet.solana.com');
-umi.programs.add(createLighthouseProgram());
+import { UMI } from '../utils/umi';
 
 export const HashVerifyStrategy = {
   buildAssertion: function (
@@ -32,7 +28,7 @@ export const HashVerifyStrategy = {
       )
     );
 
-    let builder = assertAccountInfo(umi, {
+    let builder = assertAccountInfo(UMI, {
       targetAccount: publicKey(simulatedAccount.address),
       logLevel,
       assertion: accountInfoAssertion('VerifyDatahash', {

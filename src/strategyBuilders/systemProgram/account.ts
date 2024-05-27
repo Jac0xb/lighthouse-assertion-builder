@@ -2,16 +2,12 @@ import { PublicKey } from '@solana/web3.js';
 import {
   EquatableOperator,
   IntegerOperator,
-  assertAccountInfo,
   accountInfoAssertion,
   KnownProgram,
-  AccountInfoAssertion,
   assertAccountInfoMulti,
 } from 'lighthouse-sdk-legacy';
 import { publicKey } from '@metaplex-foundation/umi';
-
-import { createLighthouseProgram, LogLevel } from 'lighthouse-sdk-legacy';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { LogLevel } from 'lighthouse-sdk-legacy';
 import {
   ProgramOwner,
   ResolvedAccount,
@@ -19,9 +15,7 @@ import {
   ResolvedUnownedAccount,
 } from '../../resolvedAccount';
 import { calculateToleranceRange, toWeb3JSInstruction } from '../utils';
-
-export const umi = createUmi('https://api.devnet.solana.com');
-umi.programs.add(createLighthouseProgram());
+import { UMI } from '../../utils/umi';
 
 export const SystemProgramAccountStrategies = {
   buildStrictAssertion: function (
@@ -39,7 +33,7 @@ export const SystemProgramAccountStrategies = {
       }),
     ];
 
-    let builder = assertAccountInfoMulti(umi, {
+    let builder = assertAccountInfoMulti(UMI, {
       targetAccount: publicKey(simulatedAccount.address),
       logLevel,
       assertions,
@@ -80,7 +74,7 @@ export const SystemProgramAccountStrategies = {
       }),
     ];
 
-    let builder = assertAccountInfoMulti(umi, {
+    let builder = assertAccountInfoMulti(UMI, {
       targetAccount: publicKey(simulatedAccount.address),
       logLevel,
       assertions,
